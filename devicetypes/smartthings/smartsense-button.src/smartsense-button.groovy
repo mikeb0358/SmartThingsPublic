@@ -43,7 +43,7 @@ metadata {
             ])
         }
         section {
-            input "tempOffset", "number", title: "Temperature Offset", description: "Adjust temperature by this many degrees", range: "*..*", displayDuringSetup: false
+            input "tempOffset", "number", title: "Temperature offset", description: "Select how many degrees to adjust the temperature.", range: "-100..100", displayDuringSetup: false
         }
     }
 
@@ -136,11 +136,11 @@ def parse(String description) {
                 }
             } else if (descMap?.clusterInt == zigbee.IAS_ZONE_CLUSTER && descMap.attrInt == zigbee.ATTRIBUTE_IAS_ZONE_STATUS && descMap?.value) {
                 map = translateZoneStatus(new ZoneStatus(zigbee.convertToInt(descMap?.value)))
-            }
+            } 
         }
     } else if (map.name == "temperature") {
         if (tempOffset) {
-            map.value = (int) map.value + (int) tempOffset
+            map.value = new BigDecimal((map.value as float) + (tempOffset as float)).setScale(1, BigDecimal.ROUND_HALF_UP)
             map.unit = getTemperatureScale()
         }
         map.descriptionText = getTemperatureScale() == 'C' ? "${ device.displayName } was ${ map.value }°C" : "${ device.displayName } was ${ map.value }°F"

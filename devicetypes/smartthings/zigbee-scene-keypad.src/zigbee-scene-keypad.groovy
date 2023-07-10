@@ -18,7 +18,7 @@ import groovy.json.JsonOutput
 import physicalgraph.zigbee.zcl.DataType
 
 metadata {
-	definition (name: "Zigbee Scene Keypad", namespace: "smartthings", author: "SmartThings", mcdSync: true) {
+	definition (name: "Zigbee Scene Keypad", namespace: "smartthings", author: "SmartThings", mcdSync: true, ocfDeviceType: "x.com.st.d.remotecontroller") {
 		capability "Actuator"
 		capability "Button"
 		capability "Configuration"
@@ -26,10 +26,12 @@ metadata {
 		capability "Sensor"
 		capability "Health Check"
 
-                fingerprint profileId: "0104", inClusters: "0000, 0003, 0004, 0005", outClusters: "0003, 0004, 0005", manufacturer: "REXENSE", model: "HY0048", deviceJoinName: "情景开关 1", vid: "generic-4-button-alt"
-                fingerprint profileId: "0104", inClusters: "0000, 0003, 0004, 0005", outClusters: "0003, 0004, 0005", manufacturer: "REXENSE", model: "0106-G", deviceJoinName: "情景开关 1", vid: "generic-6-button-alt"
-                fingerprint profileId: "0104", inClusters: "0000, 0005", outClusters: "0000, 0005, 0017", manufacturer: "ORVIBO", model: "cef8701bb8664a67a83033c071ef05f2", deviceJoinName: "情景开关 1", vid: "generic-3-button-alt"
-                fingerprint profileId: "0104", inClusters: "0004", outClusters: "0000, 0001, 0003, 0004, 0005, 0B05", manufacturer: "HEIMAN", model: "E-SceneSwitch-EM-3.0", deviceJoinName: "HEIMAN Scene Keypad", vid: "generic-4-button-alt"
+                fingerprint profileId: "0104", inClusters: "0000, 0003, 0004, 0005", outClusters: "0003, 0004, 0005", manufacturer: "REXENSE", model: "HY0048", deviceJoinName: "GDKES Remote Control", vid: "generic-4-button-alt" //GDKES Scene Keypad
+                fingerprint profileId: "0104", inClusters: "0000, 0003, 0004, 0005", outClusters: "0003, 0004, 0005", manufacturer: "REXENSE", model: "0106-G", deviceJoinName: "GDKES Remote Control", vid: "generic-6-button-alt" //GDKES Scene Keypad
+                fingerprint profileId: "0104", inClusters: "0000, 0005", outClusters: "0000, 0005, 0017", manufacturer: "ORVIBO", model: "cef8701bb8664a67a83033c071ef05f2", deviceJoinName: "ORVIBO Remote Control", vid: "generic-3-button-alt" //ORVIBO Scene Keypad
+                fingerprint profileId: "0104", inClusters: "0004", outClusters: "0000, 0001, 0003, 0004, 0005, 0B05", manufacturer: "HEIMAN", model: "E-SceneSwitch-EM-3.0", deviceJoinName: "HEIMAN Remote Control", vid: "generic-4-button-alt" //HEIMAN Scene Keypad
+                fingerprint profileId: "0104", inClusters: "0004", outClusters: "0000, 0001, 0003, 0004, 0005, 0B05", manufacturer: "HEIMAN", model: "HS6SSA-W-EF-3.0", deviceJoinName: "HEIMAN Scene Panel", vid: "generic-4-button-alt" //HEIMAN Scene Keypad
+                fingerprint profileId: "0104", inClusters: "0004", outClusters: "0000, 0001, 0003, 0004, 0005, 0B05", manufacturer: "HEIMAN", model: "HS6SSB-W-EF-3.0", deviceJoinName: "HEIMAN Scene Panel", vid: "generic-3-button-alt" //HEIMAN Scene Keypad
 
     }
 
@@ -59,15 +61,15 @@ def parse(String description) {
 
 def parseAttrMessage(description) {
 	def descMap = zigbee.parseDescriptionAsMap(description)    
-	if (descMap?.clusterInt == 0x0017 || descMap?.clusterInt == 0xFE05 || descMap?.clusterInt == 0xFC80) {
+	if (descMap?.clusterInt == 0x0017 || descMap?.clusterInt == 0xFE05 || descMap?.clusterInt == 0x0005) {
 	        def event = [:]
                 def buttonNumber
                 if (descMap?.clusterInt == 0x0017) {
 				buttonNumber = Integer.valueOf(descMap.data[0])
                 } else if (descMap?.clusterInt == 0xFE05) {
 				buttonNumber = Integer.valueOf(descMap?.value)
-                } else if(descMap?.clusterInt == 0xFC80) {
-				buttonNumber = Integer.valueOf(descMap?.command[1].toInteger()) + 1
+                } else if(descMap?.clusterInt == 0x0005) {
+				buttonNumber = buttonNum[device.getDataValue("model")][descMap.data[2]]
                 }
        		log.debug "Number is ${buttonNumber}"
                 event = createEvent(name: "button", value: "pushed", data: [buttonNumber: buttonNumber], descriptionText: "pushed", isStateChange: true)
@@ -94,7 +96,11 @@ def ping() {
 }
 
 def configure() {
-	return zigbee.enrollResponse()
+	def cmds = zigbee.enrollResponse()
+	if (isHeimanButton())
+		cmds += zigbee.writeAttribute(0x0000, 0x0012, DataType.BOOLEAN, 0x01) +
+		addHubToGroup(0x000F) + addHubToGroup(0x0010) + addHubToGroup(0x0011) + addHubToGroup(0x0012) + addHubToGroup(0x0013)
+	return cmds
 }
 
 def installed() {
@@ -104,7 +110,16 @@ def installed() {
 	if (!childDevices) {
 		addChildButtons(numberOfButtons)
 	}
-	sendEvent(name: "supportedButtonValues", value: ["pushed"])
+	if (childDevices) {
+		def event
+		for (def endpoint : 1..device.currentValue("numberOfButtons")) {
+			event = createEvent(name: "button", value: "pushed", isStateChange: true, displayed: false)
+			sendEventToChild(endpoint, event)
+		}
+	}
+
+	sendEvent(name: "button", value: "pushed", isStateChange: true, displayed: false)
+	sendEvent(name: "supportedButtonValues", value: supportedButtonValues.encodeAsJSON(), displayed: false)
 }
 
 def updated() {
@@ -116,26 +131,72 @@ def initialize() {
 }
 
 private addChildButtons(numberOfButtons) {
-	for (def i : 2..numberOfButtons) {
+	for (def endpoint : 2..numberOfButtons) {
 		try {
-			String childDni = "${device.deviceNetworkId}:$i"
-			def componentLabel = (device.displayName.endsWith(' 1') ? device.displayName[0..-2] : device.displayName) + "${i}"
-			addChildDevice("Child Button", "${device.deviceNetworkId}:${i}", device.hubId,
-                	[completedSetup: true, label: "${device.displayName} button ${i}",
-                 	isComponent: true, componentName: "button$i", componentLabel: "Button $i"])
-		} catch (Exception e) {
+			String childDni = "${device.deviceNetworkId}:$endpoint"
+			def childLabel = (device.displayName.endsWith(' 1') ? device.displayName[0..-2] : device.displayName) + "${endpoint}"
+			def child = addChildDevice("Child Button", childDni, device.getHub().getId(), [
+					completedSetup: true,
+					label         : childLabel,
+					isComponent   : true,
+					componentName : "button$endpoint",
+					componentLabel: "Button $endpoint"
+			])
+			child.sendEvent(name: "supportedButtonValues", value: supportedButtonValues.encodeAsJSON(), displayed: false)
+		} catch(Exception e) {
 			log.debug "Exception: ${e}"
 		}
 	}
 }
 
+private getSupportedButtonValues() {
+	def values = ["pushed"]
+	return values
+}
+
 private getChildCount() {
-	if (device.getDataValue("model") == "0106-G") {
-		return 6
-	} else if (device.getDataValue("model") == "HY0048" || device.getDataValue("model") == "E-SceneSwitch-EM-3.0") {
-		return 4
-	} else if (device.getDataValue("model") == "cef8701bb8664a67a83033c071ef05f2") {
-		return 3
+	def modelName = device.getDataValue("model")
+	switch(modelName) {
+		case "cef8701bb8664a67a83033c071ef05f2":
+		case "HS6SSB-W-EF-3.0":
+			return 3
+		case "E-SceneSwitch-EM-3.0":
+		case "HS6SSA-W-EF-3.0":
+		case "HY0048":
+			return 4
+		case "0106-G":
+			return 6
 	}
 }
 
+private getCLUSTER_GROUPS() { 0x0004 }
+
+private boolean isHeimanButton() {
+	def modelName = device.getDataValue("model")
+	modelName == "E-SceneSwitch-EM-3.0" || modelName == "HS6SSA-W-EF-3.0" || modelName == "HS6SSB-W-EF-3.0"
+}
+
+private List addHubToGroup(Integer groupAddr) {
+	["st cmd 0x0000 0x01 ${CLUSTER_GROUPS} 0x00 {${zigbee.swapEndianHex(zigbee.convertToHexString(groupAddr,4))} 00}",
+	 "delay 200"]
+}
+
+private getButtonNum() {[
+		"E-SceneSwitch-EM-3.0" : [
+				"01" : 2,
+				"02" : 1,
+				"03" : 3,
+				"05" : 4
+		],
+		"HS6SSA-W-EF-3.0" : [
+				"01" : 3,
+				"02" : 2,
+				"03" : 4,
+				"04" : 1
+		],
+		"HS6SSB-W-EF-3.0" : [
+				"02" : 1,
+				"03" : 3,
+				"04" : 2
+		]
+]}

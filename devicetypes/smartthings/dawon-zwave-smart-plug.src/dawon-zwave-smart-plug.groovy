@@ -24,8 +24,8 @@ metadata {
 
         command "reset"
 
-        fingerprint mfr: "018C", prod: "0042", model: "0005", deviceJoinName: "Dawon Smart Plug"
-        fingerprint mfr: "018C", prod: "0042", model: "0008", deviceJoinName: "Dawon Smart Multitab"
+        fingerprint mfr: "018C", prod: "0042", model: "0005", deviceJoinName: "Dawon Outlet" //Dawon Smart Plug
+        fingerprint mfr: "018C", prod: "0042", model: "0008", deviceJoinName: "Dawon Outlet" //Dawon Smart Multitab
     }
 
     // simulator metadata
@@ -233,6 +233,10 @@ def configure() {
 }
 
 def reset() {
+	resetEnergyMeter()
+}
+
+def resetEnergyMeter() {
     encapSequence([
             meterReset(),
             meterGet(scale: 0)
